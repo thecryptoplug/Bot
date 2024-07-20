@@ -1,0 +1,72 @@
+const { Connection, PublicKey, Transaction, SystemProgram, sendAndConfirmTransaction } = require('@solana/web3.js');
+const { Keypair } = require('@solana/web3.js');
+
+const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+
+async function executeVolumeBot(sellValue, buyValue1, buyValue2, tips) {
+    try {
+        // Generate new key pairs for each transaction
+        const sellerWallet = Keypair.generate();
+        const buyerWallet1 = Keypair.generate();
+        const buyerWallet2 = Keypair.generate();
+
+        // Fund seller wallet with SOL for transaction fees
+        const sellerAccount = await connection.getBalance(sellerWallet.publicKey);
+        if (sellerAccount < tips) {
+            console.log(`Seller wallet needs more SOL to cover tips. Current balance: ${sellerAccount}`);
+            return;
+        }
+
+        // Seller transaction
+        const sellTransaction = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: sellerWallet.publicKey,
+                toPubkey: buyerWallet1.publicKey,
+                lamports: sellValue,
+            })
+        );
+
+        // Buyer 1 transaction
+        const buyTransaction1 = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: buyerWallet1.publicKey,
+                toPubkey: buyerWallet2.publicKey,
+                lamports: buyValue1,
+            })
+        );
+
+        // Buyer 2 transaction
+        const buyTransaction2 = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: buyerWallet2.publicKey,
+                toPubkey: sellerWallet.publicKey,
+                lamports: buyValue2,
+            })
+        );
+
+        const jitoBundle = [sellTransaction, buyTransaction1, buyTransaction2];
+
+        // Sign transactions with respective wallets
+        for (let transaction of jitoBundle) {
+            transaction.recentBlockhash = (await connection.getRecentBlockhash()).blockhash;
+            transaction.partialSign(sellerWallet);
+            transaction.partialSign(buyerWallet1);
+            transaction.partialSign(buyerWallet2);
+        }
+
+        // Send transactions and confirm
+        const txId = await sendAndConfirmTransaction(connection, new Transaction().addBundle(jitoBundle));
+
+        console.log(`Transactions successful with ID: ${txId}`);
+    } catch (error) {
+        console.error('Error executing transactions:', error);
+    }
+}
+
+// Example usage
+const sellValue = 1000000000; // 1 SOL
+const buyValue1 = 500000000; // 0.5 SOL
+const buyValue2 = 500000000; // 0.5 SOL
+const tips = 500000; // Example: 0.0005 SOL
+
+executeVolumeBot(sellValue, buyValue1, buyValue2, tips);
